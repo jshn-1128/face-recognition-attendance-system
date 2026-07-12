@@ -1,0 +1,81 @@
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+.env
+.venv/
+poetry.lock
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Uploads
+uploads/
+
+# Datasets (ignore actual data, keep directory)
+datasets/*
+!datasets/.gitkeep
+
+# Models (ignore actual model files, keep directory)
+models/*
+!models/.gitkeep
+
+# Migrations
+alembic/versions/*
+!alembic/versions/.gitkeep
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+.coverage.lcov
+
+# Jupyter
+.ipynb_checkpoints
+
+# Test outputs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+test-reports/
