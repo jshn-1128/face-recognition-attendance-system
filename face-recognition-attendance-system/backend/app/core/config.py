@@ -6,6 +6,19 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
 
+    DATABASE_HOST: str = "localhost"
+    DATABASE_PORT: int = 5432
+    DATABASE_NAME: str = "attendance_db"
+    DATABASE_USER: str = "attendance_user"
+    DATABASE_PASSWORD: str = "changeme"
+
+    @property
+    def DATABASE_URL(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}"
+            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+        )
+
     class Config:
         env_file = ".env"
 
