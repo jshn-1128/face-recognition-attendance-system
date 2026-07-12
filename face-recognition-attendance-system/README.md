@@ -135,6 +135,83 @@ The API will be available at:
 - **Swagger Docs**: http://127.0.0.1:8000/docs
 - **ReDoc**: http://127.0.0.1:8000/redoc
 
+## Frontend Setup
+
+### Prerequisites
+- Node.js 20+
+- npm
+
+### 1. Install dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+### 3. Run the development server
+
+```bash
+npm run dev
+```
+
+The app will be available at http://localhost:5173.
+
+### 4. Lint and format
+
+```bash
+npm run lint       # ESLint
+npm run format     # Prettier
+```
+
+### 5. Production build
+
+```bash
+npm run build      # TypeScript check + Vite build
+```
+
+### Folder Structure
+
+```
+frontend/
+├── public/                  # Static assets
+├── src/
+│   ├── assets/              # Images, icons, fonts
+│   ├── components/          # Reusable components
+│   │   ├── common/          # Shared UI elements
+│   │   ├── forms/           # Form components
+│   │   ├── layout/          # Layout shell (Header, Sidebar, Footer, MainLayout)
+│   │   └── ui/              # Atomic UI primitives
+│   ├── pages/               # Route-level page components
+│   │   ├── auth/            # Login
+│   │   ├── dashboard/       # Dashboard overview
+│   │   ├── students/        # Student management
+│   │   ├── attendance/      # Attendance recording
+│   │   ├── reports/         # Reports & analytics
+│   │   └── settings/        # System configuration
+│   ├── routes/              # Route definitions (AppRouter)
+│   ├── hooks/               # Custom React hooks
+│   ├── services/            # API client layer (Axios)
+│   ├── store/               # Zustand state management
+│   ├── types/               # TypeScript type definitions
+│   ├── utils/               # Helper utilities
+│   ├── constants/           # App-wide constants
+│   ├── styles/              # Global CSS (Tailwind)
+│   ├── App.tsx              # Root component (QueryClientProvider)
+│   └── main.tsx             # Entry point
+├── index.html
+├── vite.config.ts           # Vite config + path aliases
+├── tsconfig.json            # TypeScript config
+├── eslint.config.js         # ESLint flat config
+├── .prettierrc              # Prettier config
+└── package.json
+```
+
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS, React Router, Axios, React Query, Zustand
