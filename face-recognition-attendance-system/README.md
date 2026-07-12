@@ -56,9 +56,9 @@ FastAPI application following a modular, service-oriented structure.
 | `app/students/`       | Student management domain module             |
 | `app/auth/`           | Authentication & authorization module        |
 | `app/reports/`        | Reporting & analytics module                 |
-| `app/tests/`          | Test suite (unit, integration, e2e)          |
+| `tests/`              | Test suite (unit, integration, e2e)          |
 | `alembic/`            | Database migration scripts                   |
-| `requirements/`       | Pinned dependency files per environment      |
+| `requirements.txt`    | Project dependencies                         |
 
 ### `docs/`
 Living documentation for the project.
@@ -90,9 +90,50 @@ Contains face image datasets used for training and evaluation. Contents are giti
 ### `models/`
 Stores trained InsightFace models and ONNX runtime artifacts. Contents are gitignored.
 
-## Getting Started
+## Backend Setup
 
-See `docs/setup/` for setup instructions.
+### Prerequisites
+- Python 3.12+
+- pip
+
+### 1. Create virtual environment
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 2. Install dependencies
+
+```bash
+pip install fastapi uvicorn python-dotenv pydantic-settings
+```
+
+Or install from requirements file:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to match your local setup.
+
+### 4. Run the server
+
+```bash
+uvicorn app.main:app --reload
+```
+
+The API will be available at:
+- **API**: http://127.0.0.1:8000
+- **Swagger Docs**: http://127.0.0.1:8000/docs
+- **ReDoc**: http://127.0.0.1:8000/redoc
 
 ## Tech Stack
 
