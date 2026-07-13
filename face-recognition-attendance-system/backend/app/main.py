@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.router import router as auth_router
 from app.core.config import settings
+from app.users.router import router as users_router
 from app.core.logging import setup_logging
 from app.database.session import AsyncSessionFactory
 
@@ -18,6 +19,7 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(users_router)
 
 
 @app.on_event("startup")

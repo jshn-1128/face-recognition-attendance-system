@@ -1,54 +1,51 @@
-from app.auth.schemas import (
-    LoginRequest,
-    RegisterRequest,
-    Token,
-    UserResponse,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.exceptions import InvalidCredentialsException
+from app.auth.schemas import Token, UserResponse
+from app.auth.security import create_access_token, verify_password
+from app.users.repository import get_user_by_email, get_user_by_id
 
 
-def register(request: RegisterRequest) -> UserResponse:
-    """Register a new user.
-
-    Returns placeholder response — database integration pending.
-    """
+async def register_placeholder(request_body: dict) -> UserResponse:
     return UserResponse(
         id="placeholder-uuid",
-        email=request.email,
-        full_name=request.full_name,
+        email=request_body.get("email", "unknown"),
+        full_name=request_body.get("full_name", "Unknown"),
         is_active=True,
     )
 
 
-def login(request: LoginRequest) -> Token:
-    """Authenticate a user and return a JWT.
+async def login(
+    db: AsyncSession,
+    email: str,
+    password: str,
+) -> Token:
+    user = await get_user_by_email(db, email)
+    if not user or not verify_password(password, user.password_hash):
+        raise InvalidCredentialsException()
 
-    Returns placeholder response — database integration pending.
-    """
-    return Token(
-        access_token="placeholder-token",
-        token_type="bearer",
+    token = create_access_token(
+        data={
+            "sub": str(user.id),
+            "is_active": user.is_active,
+            "role": user.role.value if hasattr(user.role, "value") else user.role,
+        },
     )
+    return Token(access_token=token, token_type="bearer")
 
 
-def refresh_token(token: str) -> Token:
-    """Refresh an expired access token.
+async def get_current_user_from_db(
+    db: AsyncSession,
+    user_id: str,
+) -> UserResponse:
+    import uuid
+    user = await get_user_by_id(db, uuid.UUID(user_id))
+    if not user:
+        raise InvalidCredentialsException()
 
-    Returns placeholder response — database integration pending.
-    """
-    return Token(
-        access_token="refreshed-placeholder-token",
-        token_type="bearer",
-    )
-
-
-def get_current_user(user_id: str) -> UserResponse:
-    """Retrieve the currently authenticated user.
-
-    Returns placeholder response — database integration pending.
-    """
     return UserResponse(
-        id=user_id,
-        email="user@example.com",
-        full_name="User Name",
-        is_active=True,
+        id=str(user.id),
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
     )

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import service
+from app.auth import service as auth_service
 from app.auth.dependencies import get_current_active_user
 from app.auth.schemas import (
     LoginRequest,
@@ -9,6 +10,9 @@ from app.auth.schemas import (
     Token,
     UserResponse,
 )
+from app.database.session import get_db
+from app.users.service import register_user
+from app.users.schemas import UserCreate
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -20,8 +24,22 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     response_model=UserResponse,
     status_code=201,
 )
-async def register(request: RegisterRequest) -> UserResponse:
-    return service.register(request)
+async def register(
+    request: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    create_data = UserCreate(
+        email=request.email,
+        password=request.password,
+        full_name=request.full_name,
+    )
+    user = await register_user(db, create_data)
+    return UserResponse(
+        id=str(user.id),
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
+    )
 
 
 @router.post(
@@ -31,8 +49,11 @@ async def register(request: RegisterRequest) -> UserResponse:
     response_model=Token,
     status_code=200,
 )
-async def login(request: LoginRequest) -> Token:
-    return service.login(request)
+async def login(
+    request: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    return await auth_service.login(db, request.email, request.password)
 
 
 @router.post(
@@ -43,7 +64,10 @@ async def login(request: LoginRequest) -> Token:
     status_code=200,
 )
 async def refresh(request: RefreshRequest) -> Token:
-    return service.refresh_token(request.token)
+    return Token(
+        access_token="refreshed-placeholder-token",
+        token_type="bearer",
+    )
 
 
 @router.get(
@@ -55,6 +79,8 @@ async def refresh(request: RefreshRequest) -> Token:
 )
 async def me(
     current_user: dict = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
-    user_id = str(current_user.get("sub", "unknown"))
-    return service.get_current_user(user_id)
+    return await auth_service.get_current_user_from_db(
+        db, str(current_user.get("sub", "unknown"))
+    )
