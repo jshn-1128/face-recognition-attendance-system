@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    FACE_MODEL_NAME: str = "buffalo_l"
+    FACE_STORAGE_PATH: str = "storage/faces"
+    MAX_IMAGE_SIZE_MB: int = 10
+    SUPPORTED_IMAGE_TYPES: str = "jpg,jpeg,png"
+
+    @property
+    def SUPPORTED_IMAGE_TYPES_LIST(self) -> list[str]:
+        return [t.strip() for t in self.SUPPORTED_IMAGE_TYPES.split(",")]
+
     class Config:
         env_file = ".env"
 
