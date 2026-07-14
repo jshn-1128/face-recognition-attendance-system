@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router
 from app.core.config import settings
 from app.face.router import router as face_router
+from app.recognition.router import router as recognition_router
 from app.users.router import router as users_router
 from app.core.logging import setup_logging
 from app.database.session import AsyncSessionFactory
@@ -39,6 +40,7 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(face_router)
+app.include_router(recognition_router)
 
 
 @app.on_event("startup")
