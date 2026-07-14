@@ -13,7 +13,13 @@ from app.recognition.matcher import (
     find_best_match,
     normalize_vector,
 )
-from app.recognition.repository import RecognitionRepository
+from app.recognition.repository import (
+    EmbeddingNotFound,
+    InvalidEmbeddingRecord,
+    RecognitionRepository,
+    RepositoryError,
+    StoredEmbedding,
+)
 from app.recognition.schemas import (
     RecognitionCandidate,
     RecognitionFailure,
@@ -25,6 +31,10 @@ from app.recognition.service import RecognitionService
 __all__ = [
     "RecognitionService",
     "RecognitionRepository",
+    "StoredEmbedding",
+    "EmbeddingNotFound",
+    "InvalidEmbeddingRecord",
+    "RepositoryError",
     "RecognitionCandidate",
     "RecognitionResponse",
     "RecognitionFailure",
