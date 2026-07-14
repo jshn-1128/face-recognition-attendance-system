@@ -106,6 +106,51 @@ async def _delete_image(image_path: str) -> None:
         logger.info("Image deleted: %s", image_path)
 
 
+async def extract_embedding(
+    *,
+    filename: str,
+    content_type: str | None,
+    file_size: int,
+    image_bytes: bytes,
+) -> list[float]:
+    """Extract a face embedding from raw image bytes.
+
+    Workflow:
+        1. Validate image metadata (MIME, extension, size).
+        2. Validate image content (decodable, not corrupt).
+        3. Initialise the face detector (idempotent — no-op if already loaded).
+        4. Decode the image, detect exactly one face, generate a 512-d embedding.
+
+    This is the **single** entry point that every consumer (registration,
+    recognition, future attendance) should use to obtain an embedding from
+    an uploaded image.  It performs **no** database operations and **no**
+    file I/O beyond reading the provided bytes.
+
+    Args:
+        filename: Original filename (used to infer extension for validation).
+        content_type: MIME type from the upload (may be ``None``).
+        file_size: Size of the image in bytes.
+        image_bytes: Raw image file bytes.
+
+    Returns:
+        A 512-dimensional face embedding as ``list[float]``.
+
+    Raises:
+        InvalidImageException: Image is corrupted or unreadable.
+        UnsupportedImageException: Unsupported MIME type or file extension.
+        FaceNotFoundException: No face detected in the image.
+        MultipleFacesDetectedException: More than one face detected.
+        FaceModelException: Face model failed to initialise.
+
+    Thread safety: Fully stateless — safe for concurrent use.
+    """
+    _validate_image(filename, content_type, file_size)
+    await _validate_image_content(image_bytes)
+    init_detector(settings.FACE_MODEL_NAME)
+    image = await read_image_from_bytes(image_bytes)
+    return await generate_embedding(image)
+
+
 async def register_face(
     db: AsyncSession,
     *,

@@ -23,23 +23,59 @@ class RecognitionCandidate(BaseModel):
 
 
 class RecognitionResponse(BaseModel):
-    """Successful recognition result.
+    """Recognition result returned to the API consumer.
 
-    Returned when a face is successfully matched to an enrolled user.
+    Encapsulates the outcome of a face recognition operation.  When
+    ``matched`` is ``True`` the identity fields are populated with the
+    matched user's details; when ``False`` only ``message`` is meaningful.
     """
 
-    recognized: bool = Field(
-        ..., description="Whether a match was found above the confidence threshold",
+    matched: bool = Field(
+        ...,
+        description="Whether a match was found above the confidence threshold",
     )
     user_id: uuid.UUID | None = Field(
-        None, description="UUID of the matched user, if recognised",
+        None,
+        description="UUID of the matched user (``None`` when not matched)",
     )
-    confidence: float | None = Field(
-        None, ge=0.0, le=100.0, description="Confidence score of the match",
+    full_name: str | None = Field(
+        None,
+        description="Full name of the matched user (``None`` when not matched)",
     )
-    candidates: list[RecognitionCandidate] = Field(
-        default_factory=list,
-        description="Top matching candidates, sorted by confidence descending",
+    employee_id: str | None = Field(
+        None,
+        description=(
+            "Employee identifier of the matched user "
+            "(``None`` when not matched)"
+        ),
+    )
+    department: str | None = Field(
+        None,
+        description=(
+            "Department of the matched user "
+            "(``None`` when not matched)"
+        ),
+    )
+    confidence: float = Field(
+        0.0,
+        ge=0.0,
+        le=100.0,
+        description="Confidence percentage (0–100 %) of the match",
+    )
+    similarity: float = Field(
+        0.0,
+        description="Raw cosine similarity score of the best match",
+    )
+    model_name: str | None = Field(
+        None,
+        description=(
+            "Name of the AI model that produced the embedding "
+            "(``None`` when not matched)"
+        ),
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable status message",
     )
 
 
