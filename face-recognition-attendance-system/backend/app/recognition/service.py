@@ -15,8 +15,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.recognition.matcher import RecognitionMatch, find_best_match
+from app.recognition.matcher import (
+    RecognitionMatch,
+    calculate_confidence,
+    cosine_similarity,
+    find_best_match,
+)
 from app.recognition.repository import (
+    EmbeddingNotFound,
     RecognitionRepository,
     RepositoryError,
     StoredEmbedding,
@@ -67,6 +73,46 @@ class RecognitionResult:
     confidence: float
     model_name: str | None
     metadata: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    """Immutable result of a 1:1 face verification operation.
+
+    Returned by :meth:`RecognitionService.verify` and consumed by the
+    router layer.  Consumers receive this object and never interact
+    with ``StoredEmbedding`` or raw matcher values directly.
+
+    Attributes:
+        verified: ``True`` when the query embedding matches the claimed
+            user's enrolled embedding above the configured threshold.
+        user_id: UUID of the claimed user.
+        full_name: Full name of the claimed user (``None`` when the
+            lookup succeeded but the profile has no name).
+        employee_id: Employee identifier of the claimed user
+            (``None`` when not set).
+        department: Department of the claimed user (``None`` when
+            not set).
+        similarity: Cosine similarity between the query and stored
+            embeddings.
+        confidence: Confidence percentage derived from the similarity.
+        threshold: Similarity threshold used for the verification
+            decision.
+        model_name: Name of the AI model that produced the stored
+            embedding.
+        message: Human-readable outcome message.
+    """
+
+    verified: bool
+    user_id: uuid.UUID
+    full_name: str | None
+    employee_id: str | None
+    department: str | None
+    similarity: float
+    confidence: float
+    threshold: float
+    model_name: str | None
+    message: str
 
 
 # Sentinal used for the no-match case to avoid repeated allocations.
@@ -247,6 +293,99 @@ class RecognitionService:
             raise RecognitionServiceError(
                 f"Failed to check embedding for user {user_id}"
             ) from exc
+
+    async def verify(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        query_embedding: Sequence[float],
+        threshold: float = 0.65,
+    ) -> VerificationResult:
+        """Verify a face embedding against a claimed user's enrolled embedding.
+
+        1:1 verification answers "is this the claimed user?" —
+        it compares the query embedding against *one* stored embedding
+        rather than searching all enrolled users.
+
+        Workflow:
+
+        1.  Validate the query embedding (non-null, non-empty, sequence).
+        2.  Fetch the claimed user's stored embedding (O(1) lookup).
+        3.  Compute cosine similarity between query and stored embedding.
+        4.  Derive a confidence percentage from the similarity.
+        5.  Compare against the configured threshold.
+        6.  Build and return a ``VerificationResult``.
+
+        Args:
+            db: Active async database session.
+            user_id: UUID of the claimed user to verify against.
+            query_embedding: A face embedding vector (typically
+                512-dimensional).
+            threshold: Minimum cosine similarity required for a
+                positive verification.  Defaults to ``0.65``.
+
+        Returns:
+            A :class:`VerificationResult` describing the verification
+            outcome.  When the similarity is below *threshold*,
+            ``verified`` is ``False``.
+
+        Raises:
+            EmbeddingNotFound: If the claimed user does not exist,
+                is inactive, or has no enrolled embedding.
+            RecognitionServiceError: If the query embedding is invalid
+                (``None``, wrong type, empty), a database error occurs,
+                or the matcher encounters a corrupt stored embedding.
+
+        Complexity: O(D) — D embedding dimensions.
+            Single lookup, single pairwise similarity computation.
+
+        Thread safety: Fully stateless — safe for concurrent use.
+        """
+        self._validate_query(query_embedding)
+
+        try:
+            stored = await self._repository.get_embedding_by_user_id(
+                db, user_id
+            )
+        except RepositoryError as exc:
+            logger.error(
+                "Failed to fetch embedding for user %s: %s", user_id, exc
+            )
+            raise RecognitionServiceError(
+                f"Failed to fetch enrolled embedding for user {user_id}"
+            ) from exc
+
+        try:
+            similarity = cosine_similarity(query_embedding, stored.embedding)
+            confidence = calculate_confidence(similarity)
+        except (TypeError, ValueError) as exc:
+            logger.error(
+                "Similarity computation failed for user %s: %s",
+                user_id,
+                exc,
+            )
+            raise RecognitionServiceError(
+                f"Face verification failed: {exc}"
+            ) from exc
+
+        verified = similarity >= threshold
+
+        return VerificationResult(
+            verified=verified,
+            user_id=stored.user_id,
+            full_name=stored.full_name,
+            employee_id=stored.employee_id,
+            department=stored.department,
+            similarity=similarity,
+            confidence=confidence,
+            threshold=threshold,
+            model_name=stored.model_name,
+            message=(
+                "Identity verified."
+                if verified
+                else "Identity could not be verified."
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

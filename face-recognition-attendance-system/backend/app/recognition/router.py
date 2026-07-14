@@ -3,7 +3,9 @@
 Defines the external API contract for the recognition subsystem.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+import uuid
+
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user
@@ -16,8 +18,12 @@ from app.face.exceptions import (
     UnsupportedImageException,
 )
 from app.face.service import extract_embedding
-from app.recognition.schemas import RecognitionResponse
-from app.recognition.service import RecognitionService, RecognitionServiceError
+from app.recognition.schemas import RecognitionResponse, VerificationResponse
+from app.recognition.service import (
+    EmbeddingNotFound,
+    RecognitionService,
+    RecognitionServiceError,
+)
 
 router = APIRouter(
     prefix="/recognition",
@@ -181,23 +187,98 @@ async def stats(
     summary="Verify a person against a claimed identity",
     description="Upload a face image and provide a user identifier to "
     "perform one-to-one verification.  Returns whether the face matches "
-    "the claimed user's registered embedding.  This endpoint will be "
-    "implemented in Milestone 7.4.2.",
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+    "the claimed user's registered embedding.\n\n"
+    "**Workflow:**\n"
+    "1. Validates the uploaded image (MIME type, extension, size, content).\n"
+    "2. Detects exactly one face and generates a 512-dimensional embedding.\n"
+    "3. Fetches the claimed user's stored embedding.\n"
+    "4. Computes cosine similarity — if above threshold, identity is verified.",
+    response_model=VerificationResponse,
+    status_code=status.HTTP_200_OK,
     responses={
-        501: {"description": "Not implemented — planned for Milestone 7.4.2"},
+        200: {
+            "description": "Verification completed (verified or not verified)",
+            "model": VerificationResponse,
+        },
+        400: {
+            "description": "Invalid image, unsupported format, multiple faces, "
+            "corrupted or empty upload, or malformed user_id",
+        },
         401: {"description": "Authentication required"},
+        404: {"description": "No face detected or no embedding found for the claimed user"},
+        500: {"description": "Recognition service error"},
     },
 )
 async def verify(
     file: UploadFile,
+    user_id: str = Form(
+        ...,
+        description="UUID of the user to verify against",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_active_user),
     service: RecognitionService = Depends(get_recognition_service),
-) -> None:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=_NOT_IMPLEMENTED["detail"],
+) -> VerificationResponse:
+    """Perform one-to-one face verification against a claimed user.
+
+    The endpoint is fully stateless — no database writes.
+    It delegates image processing to the Face module and identity
+    comparison to the Recognition service.
+    """
+    try:
+        parsed_user_id = uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid user_id: '{user_id}' is not a valid UUID",
+        )
+
+    image_bytes = await _read_upload(file)
+
+    try:
+        embedding = await extract_embedding(
+            filename=file.filename or "image.jpg",
+            content_type=file.content_type,
+            file_size=len(image_bytes),
+            image_bytes=image_bytes,
+        )
+    except (
+        InvalidImageException,
+        UnsupportedImageException,
+        FaceNotFoundException,
+        MultipleFacesDetectedException,
+        FaceModelException,
+    ):
+        raise
+
+    try:
+        result = await service.verify(
+            db=db,
+            user_id=parsed_user_id,
+            query_embedding=embedding,
+        )
+    except EmbeddingNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except RecognitionServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+    return VerificationResponse(
+        verified=result.verified,
+        user_id=result.user_id,
+        full_name=result.full_name,
+        employee_id=result.employee_id,
+        department=result.department,
+        similarity=result.similarity,
+        confidence=result.confidence,
+        threshold=result.threshold,
+        model_name=result.model_name,
+        message=result.message,
     )
 
 
