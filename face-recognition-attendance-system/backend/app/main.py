@@ -1,7 +1,9 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.router import router as auth_router
@@ -18,6 +20,21 @@ app = FastAPI(
     version=settings.APP_VERSION,
     description="Production-grade AI-powered attendance system using face recognition technology.",
 )
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    """Catch unhandled SQL integrity violations and return 409 instead of 500.
+
+    This is a safety net for any TOCTOU race condition that bypasses
+    application-level checks (e.g. concurrent email registration).
+    """
+    logger.warning("Unhandled IntegrityError: %s", exc.orig if hasattr(exc, "orig") else exc)
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "A resource with the given identifier already exists"},
+    )
+
 
 app.include_router(auth_router)
 app.include_router(users_router)

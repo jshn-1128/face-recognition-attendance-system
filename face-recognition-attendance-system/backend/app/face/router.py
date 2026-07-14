@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_active_user
 from app.database.session import get_db
 from app.face.exceptions import InvalidImageException
-from app.face.schemas import FaceRegisterResponse, FaceResponse, FaceUpdateResponse
+from app.face.schemas import FaceRegisterResponse, FaceResponse
 from app.face.service import delete_face, get_face, register_face, update_face
 
 router = APIRouter(prefix="/faces", tags=["Faces"])
@@ -65,7 +65,7 @@ async def get_my_face(
     summary="Replace face embedding",
     description="Replace the existing face embedding with a new one. "
     "The old image is deleted. Same validation rules as registration.",
-    response_model=FaceUpdateResponse,
+    response_model=FaceResponse,
     responses={
         400: {"description": "Invalid image, no face, multiple faces, or unsupported format"},
         404: {"description": "No face embedding found for this user"},
@@ -75,7 +75,7 @@ async def update_my_face(
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_active_user),
-) -> FaceUpdateResponse:
+) -> FaceResponse:
     user_id = uuid.UUID(current_user["sub"])
     image_bytes = await _read_upload(file)
     return await update_face(

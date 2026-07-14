@@ -6,15 +6,6 @@ from app.auth.security import create_access_token, verify_password
 from app.users.repository import get_user_by_email, get_user_by_id
 
 
-async def register_placeholder(request_body: dict) -> UserResponse:
-    return UserResponse(
-        id="placeholder-uuid",
-        email=request_body.get("email", "unknown"),
-        full_name=request_body.get("full_name", "Unknown"),
-        is_active=True,
-    )
-
-
 async def login(
     db: AsyncSession,
     email: str,

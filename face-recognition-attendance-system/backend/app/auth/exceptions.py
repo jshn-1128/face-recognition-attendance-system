@@ -21,9 +21,9 @@ class InvalidCredentialsException(AuthException):
 
 
 class InvalidTokenException(AuthException):
-    def __init__(self) -> None:
+    def __init__(self, detail: str = "Invalid or malformed token") -> None:
         super().__init__(
-            detail="Invalid or malformed token",
+            detail=detail,
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 

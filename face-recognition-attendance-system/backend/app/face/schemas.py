@@ -23,11 +23,4 @@ class FaceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class FaceUpdateResponse(BaseModel):
-    id: uuid.UUID = Field(..., description="Unique face embedding identifier")
-    model_name: str = Field(..., description="Face recognition model used for embedding")
-    image_path: str = Field(..., description="Path to the stored face image")
-    created_at: datetime = Field(..., description="Embedding creation timestamp")
-    updated_at: datetime = Field(..., description="Last update timestamp")
 
-    model_config = {"from_attributes": True}

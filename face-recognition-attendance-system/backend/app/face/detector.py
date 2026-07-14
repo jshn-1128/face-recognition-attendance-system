@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import cv2
@@ -100,10 +101,10 @@ def validate_single_face(image: np.ndarray) -> dict:
     return faces[0]
 
 
-def read_image_from_bytes(image_bytes: bytes) -> np.ndarray:
-    """Decode raw bytes into an OpenCV image array."""
+async def read_image_from_bytes(image_bytes: bytes) -> np.ndarray:
+    """Decode raw bytes into an OpenCV image array (offloaded to thread)."""
     np_arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    image = await asyncio.to_thread(cv2.imdecode, np_arr, cv2.IMREAD_COLOR)
     if image is None:
         from app.face.exceptions import InvalidImageException
         raise InvalidImageException("Could not decode image. The file may be corrupted")

@@ -1,3 +1,6 @@
+import sys
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -31,6 +34,18 @@ class Settings(BaseSettings):
     @property
     def SUPPORTED_IMAGE_TYPES_LIST(self) -> list[str]:
         return [t.strip() for t in self.SUPPORTED_IMAGE_TYPES.split(",")]
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
+        if not self.DEBUG and self.JWT_SECRET_KEY == "change-me-in-production":
+            print(
+                "FATAL: JWT_SECRET_KEY is set to the insecure default "
+                "'change-me-in-production'. "
+                "Set a strong random secret in .env or the environment.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return self
 
     class Config:
         env_file = ".env"
