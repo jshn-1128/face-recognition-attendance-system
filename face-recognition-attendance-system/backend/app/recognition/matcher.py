@@ -13,6 +13,8 @@ without modification.
 
 import numpy as np
 from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -188,40 +190,285 @@ def euclidean_distance(a: Sequence[float], b: Sequence[float]) -> float:
     return float(np.sqrt(max(squared, 0.0)))
 
 
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RecognitionMatch:
+    """Result of a face-recognition ``find_best_match`` operation.
+
+    Attributes:
+        matched: ``True`` when the best similarity ≥ *threshold*.
+        candidate_id: Identifier of the best-matching candidate
+            (``None`` when *matched* is ``False``).
+        similarity: Cosine similarity of the best match
+            (``0.0`` when nobody matched).
+        confidence: Confidence percentage derived from the similarity
+            (``0.0`` when nobody matched).
+        metadata: Extra fields from the winning candidate record
+            (``None`` when nobody matched or candidate had no extras).
+    """
+
+    matched: bool = False
+    candidate_id: Any = None
+    similarity: float = 0.0
+    confidence: float = 0.0
+    metadata: dict | None = None
+
+
+# ---------------------------------------------------------------------------
+# Score → confidence
+# ---------------------------------------------------------------------------
+
+
+def calculate_confidence(similarity: float) -> float:
+    """Convert a cosine-similarity score into a confidence percentage.
+
+    The formula is ``confidence = max(0.0, clamp(s, -1, 1) × 100)``:
+
+    ==================  ===========
+    Similarity           Confidence
+    ==================  ===========
+    1.0                 100.0
+    0.95                 95.0
+    0.73                 73.0
+    0.0                   0.0
+    -0.5                  0.0
+    ==================  ===========
+
+    Args:
+        similarity: Raw cosine similarity (ideally in ``[-1.0, 1.0]``).
+
+    Returns:
+        Confidence percentage as a Python ``float`` in ``[0.0, 100.0]``.
+
+    Time complexity: O(1)
+    Space complexity: O(1)
+
+    Examples:
+        >>> calculate_confidence(1.0)
+        100.0
+        >>> calculate_confidence(0.95)
+        95.0
+        >>> calculate_confidence(0.73)
+        73.0
+        >>> calculate_confidence(-0.5)
+        0.0
+    """
+    clamped = max(-1.0, min(similarity, 1.0))
+    return float(max(0.0, clamped * 100.0))
+
+
+# ---------------------------------------------------------------------------
+# Candidate extraction
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _PreparedCandidates:
+    """Pre-processed candidate data ready for similarity search.
+
+    Attributes:
+        embedding_matrix: ``(n, d)`` float32 array where every row is an
+            L2-normalised candidate embedding.
+        candidate_ids: Parallel list of candidate identifiers.
+        metadata_list: Parallel list of extra-field dicts (may be empty).
+    """
+
+    embedding_matrix: np.ndarray
+    candidate_ids: list[Any]
+    metadata_list: list[dict]
+
+
+def _prepare_candidate_matrix(
+    candidates: Sequence[dict],
+    dim: int,
+) -> _PreparedCandidates:
+    """Extract, validate, and L2-normalise every candidate embedding.
+
+    Each candidate dict **must** contain ``candidate_id`` and
+    ``embedding`` keys.  Embeddings are validated (NaN, Inf, zero-norm,
+    dimension mismatch) and L2-normalised before being stored into a
+    pre-allocated ``(n, d)`` float32 matrix.  Any extra keys in the
+    candidate dict are preserved as metadata but are **not** validated.
+
+    Args:
+        candidates: A non-empty sequence of candidate dicts.
+        dim: Expected embedding dimension (derived from the query).
+
+    Returns:
+        A :class:`_PreparedCandidates` holding the normalised matrix,
+        candidate identifiers, and metadata.
+
+    Raises:
+        TypeError: If any candidate is not a dict.
+        ValueError: If any candidate is missing required keys, has an
+            invalid embedding, a dimension mismatch, or a zero-norm
+            embedding.
+
+    Time complexity: O(n × d)
+    Space complexity: O(n × d)
+    """
+    n = len(candidates)
+    emb_matrix = np.empty((n, dim), dtype=np.float32)
+    ids: list[Any] = []
+    metadata_list: list[dict] = []
+
+    for i, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict):
+            raise TypeError(
+                f"candidate at index {i} must be a dict, "
+                f"got {type(candidate).__name__}"
+            )
+        if "candidate_id" not in candidate:
+            raise ValueError(
+                f"candidate at index {i} is missing required key "
+                "'candidate_id'"
+            )
+        if "embedding" not in candidate:
+            raise ValueError(
+                f"candidate at index {i} is missing required key "
+                "'embedding'"
+            )
+
+        emb = _validate_vector(
+            candidate["embedding"], f"candidate[{i}].embedding"
+        )
+        if emb.shape[0] != dim:
+            raise ValueError(
+                f"candidate[{i}] embedding has {emb.shape[0]} "
+                f"dimensions, expected {dim}"
+            )
+
+        norm = float(np.linalg.norm(emb))
+        if norm == 0.0:
+            raise ValueError(
+                f"candidate[{i}] embedding is a zero vector"
+            )
+        emb_matrix[i] = (emb / norm).astype(np.float32)
+
+        ids.append(candidate["candidate_id"])
+        metadata_list.append(
+            {
+                k: v
+                for k, v in candidate.items()
+                if k not in ("candidate_id", "embedding")
+            }
+        )
+
+    return _PreparedCandidates(
+        embedding_matrix=emb_matrix,
+        candidate_ids=ids,
+        metadata_list=metadata_list,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Best-match search
+# ---------------------------------------------------------------------------
+
+
 def find_best_match(
-    query_vector: list[float],
-    candidates: list[dict],
-) -> None:
-    """Find the closest matching embedding from a list of candidates.
+    query_vector: Sequence[float],
+    candidates: Sequence[dict],
+    threshold: float = 0.65,
+) -> RecognitionMatch:
+    """Find the closest matching candidate from a list of candidates.
+
+    The algorithm:
+
+    1.  L2-normalise the query vector once.
+    2.  Delegate candidate extraction, validation, and normalisation to
+        :func:`_prepare_candidate_matrix`.
+    3.  Compute all cosine similarities with a single vectorised dot
+        product ``similarities = E @ q_norm``.
+    4.  Locate the best index via ``np.argmax`` (deterministic
+        tie-breaking — the first max wins).
+    5.  If the best similarity is below *threshold*, return
+        ``matched=False`` — an unknown person is **not** an error.
 
     Args:
-        query_vector: The query face embedding vector.
-        candidates: A list of candidate records, each containing an
-            ``embedding`` key with a 512-dimensional vector.
+        query_vector: The query face embedding.
+        candidates: A sequence of candidate dicts.  Each dict **must**
+            contain at least ``candidate_id`` (any hashable identifier)
+            and ``embedding`` (``Sequence[float]``).  Any additional
+            keys are preserved verbatim in ``RecognitionMatch.metadata``.
+        threshold: Minimum cosine similarity required for a positive
+            match.  Default ``0.65``.
 
     Returns:
-        The best-matching candidate record and its similarity score.
+        A :class:`RecognitionMatch` describing the result.
 
     Raises:
-        NotImplementedError: Always — not yet implemented.
+        TypeError: If the query vector is ``None``, or if a candidate
+            is not a dict.
+        ValueError: If the query vector is empty, contains NaN/Inf,
+            is a zero vector, or has non-numeric dtype.  Also if a
+            candidate is missing required keys, has an invalid
+            embedding, or has a dimension different from the query.
+
+    Time complexity: O(n × d) — n candidates, d embedding dimensions.
+    Space complexity: O(n × d) for the embedding matrix.
+
+    Examples:
+        >>> candidates = [
+        ...     {"candidate_id": "alice", "embedding": [0.1, 0.2, 0.3]},
+        ...     {"candidate_id": "bob",   "embedding": [0.9, 0.8, 0.7]},
+        ...     {"candidate_id": "carol", "embedding": [0.4, 0.5, 0.6]},
+        ... ]
+        >>> result = find_best_match([0.85, 0.75, 0.65], candidates)
+        >>> result.matched
+        True
+        >>> result.candidate_id
+        'bob'
     """
-    raise NotImplementedError("find_best_match is not implemented")
+    # ------------------------------------------------------------------
+    # 1.  Validate & normalise the query vector once.
+    #     normalize_vector raises TypeError/ValueError as appropriate.
+    # ------------------------------------------------------------------
+    q_norm = normalize_vector(query_vector)
+    dim: int = int(q_norm.shape[0])
 
+    # ------------------------------------------------------------------
+    # 2.  Empty candidate list → no match
+    # ------------------------------------------------------------------
+    if not candidates:
+        return RecognitionMatch(matched=False)
 
-def calculate_confidence(
-    similarity_score: float,
-    threshold: float = 0.5,
-) -> None:
-    """Convert a raw similarity score into a confidence percentage.
+    # ------------------------------------------------------------------
+    # 3.  Delegate candidate extraction, validation, normalisation.
+    # ------------------------------------------------------------------
+    prepared = _prepare_candidate_matrix(candidates, dim)
 
-    Args:
-        similarity_score: Raw similarity score from a matching function.
-        threshold: Minimum score required for a positive match.
+    # ------------------------------------------------------------------
+    # 4.  Vectorised similarity: E @ q_norm
+    #     prepared.embedding_matrix : (n, d) float32 — unit-length rows
+    #     q_norm                    : (d,)   float32 — unit-length
+    #     similarities              : (n,)   float32
+    # ------------------------------------------------------------------
+    similarities = np.clip(
+        np.dot(prepared.embedding_matrix, q_norm), -1.0, 1.0
+    )
 
-    Returns:
-        A float in ``[0.0, 100.0]`` representing confidence.
+    # ------------------------------------------------------------------
+    # 5.  Locate the best match.
+    # ------------------------------------------------------------------
+    best_idx = int(np.argmax(similarities))
+    best_similarity = float(similarities[best_idx])
+    best_confidence = calculate_confidence(best_similarity)
 
-    Raises:
-        NotImplementedError: Always — not yet implemented.
-    """
-    raise NotImplementedError("calculate_confidence is not implemented")
+    # ------------------------------------------------------------------
+    # 6.  Apply threshold — unknown person is NOT an error.
+    # ------------------------------------------------------------------
+    if best_similarity < threshold:
+        return RecognitionMatch(matched=False)
+
+    return RecognitionMatch(
+        matched=True,
+        candidate_id=prepared.candidate_ids[best_idx],
+        similarity=best_similarity,
+        confidence=best_confidence,
+        metadata=prepared.metadata_list[best_idx] or None,
+    )
